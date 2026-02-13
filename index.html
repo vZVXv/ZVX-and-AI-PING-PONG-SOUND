@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>ZVX and AI PING PONG + SOUND</title>
+    <style>
+        :root { --neon: #0f0; --bg: #050505; }
+        body { background: var(--bg); color: var(--neon); font-family: 'Consolas', monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; user-select: none; }
+        
+        #header {
+            width: 800px;
+            text-align: center;
+            font-size: 32px;
+            font-weight: 900;
+            letter-spacing: 10px;
+            padding: 15px 0;
+            margin-bottom: 10px;
+            border: 3px solid var(--neon);
+            box-shadow: 0 0 20px rgba(0,255,0,0.2), inset 0 0 10px rgba(0,255,0,0.2);
+            text-shadow: 0 0 10px var(--neon), 0 0 20px var(--neon);
+            animation: flicker 3s infinite;
+        }
+
+        @keyframes flicker {
+            0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; }
+            20%, 24%, 55% { opacity: 0.7; }
+        }
+
+        canvas { border: 2px solid var(--neon); background: #000; box-shadow: 0 0 30px rgba(0,255,0,0.1); cursor: none; transition: transform 0.05s; }
+        .hud { width: 800px; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 22px; font-weight: bold; letter-spacing: 2px; }
+        #b-bar { width: 800px; height: 4px; background: #111; margin-top: 8px; overflow: hidden; border-radius: 2px; }
+        #b-fill { width: 0%; height: 100%; transition: width 0.1s linear; background: #0f0; }
+    </style>
+</head>
+<body>
+    <div id="header">ZVX and AI PING PONG</div>
+
+    <div class="hud">
+        <div>SCORE: <span id="score">0</span></div>
+        <div id="msg" style="color:#fff; font-size: 16px; text-shadow: 0 0 5px #fff; min-width: 250px; text-align: center;"></div>
+        <div>BEST: <span id="best">0</span></div>
+    </div>
+    
+    <canvas id="game" width="800" height="500"></canvas>
+    <div id="b-bar"><div id="b-fill"></div></div>
+
+    <script>
+        const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best');
+        const bFill = document.getElementById('b-fill'), msgEl = document.getElementById('msg');
+
+        // --- AUDIO ENGINE ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        const SFX = {
+            play(freq, type, duration, vol = 0.1) {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            },
+            hit() { this.play(150, 'square', 0.1); },
+            paddle() { this.play(440, 'sine', 0.15); },
+            powerup() { this.play(880, 'triangle', 0.4); },
+            damage() { this.play(60, 'sawtooth', 0.3, 0.2); },
+            triangle() { this.play(200, 'sine', 0.1, 0.2); }
+        };
+
+        let score = 0, best = localStorage.getItem('rv_best') || 0;
+        bestEl.innerText = best;
+
+        let pY = 200, pH = 90, particles = [], powerups = [], enemies = [], balls = [{x: 400, y: 250, dx: 5, dy: 5}]; 
+        let isGameOver = false, obstacle = null, lastSpawnScore = -1, bTimer = 0, gameSpeedMult = 1.0, scannerY = 0;
+
+        function isPointInTriangle(px, py, x1, y1, x2, y2, x3, y3) {
+            let area = Math.abs((x1*(y2-y3) + x2*(y3-y1) + x3*(y1-y2))/2);
+            let a1 = Math.abs((px*(y1-y2) + x1*(y2-py) + x2*(py-y1))/2);
+            let a2 = Math.abs((px*(y2-y3) + x2*(y3-py) + x3*(py-y2))/2);
+            let a3 = Math.abs((px*(y3-y1) + x3*(y1-py) + x1*(py-y3))/2);
+            return Math.abs(area - (a1 + a2 + a3)) < 1.0;
+        }
+
+        window.onmousemove = (e) => {
+            if (isGameOver) return;
+            const r = canvas.getBoundingClientRect();
+            pY = Math.max(0, Math.min(canvas.height - pH, (e.clientY - r.top) * (canvas.height / r.height) - pH / 2));
+        };
+        window.onclick = () => { if (isGameOver) resetGame(); };
+
+        function forceResetUI() {
+            bTimer = 0; bFill.style.width = "0%"; msgEl.innerText = ""; pH = 90; gameSpeedMult = 1.0;
+        }
+
+        function shake(intensity = 15) {
+            canvas.style.transform = `translate(${(Math.random()-0.5)*intensity}px, ${(Math.random()-0.5)*intensity}px)`;
+            setTimeout(() => canvas.style.transform = 'translate(0,0)', 50);
+        }
+
+        function createParticles(x, y, color, count=12) {
+            for(let i=0; i<count; i++) particles.push({ x, y, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, life: 1, color });
+        }
+
+        function resetGame() {
+            score = 0; scoreEl.innerText = 0; lastSpawnScore = -1;
+            balls = [{x: 400, y: 250, dx: 5, dy: 5}];
+            forceResetUI(); powerups = []; enemies = []; particles = []; obstacle = null; isGameOver = false;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function update() {
+            if (isGameOver) {
+                ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "white"; ctx.font = "bold 40px Consolas"; ctx.textAlign = "center";
+                ctx.fillText("GAME OVER", 400, 230);
+                ctx.font = "20px Consolas"; ctx.fillStyle = "#aaa"; ctx.fillText("CLICK TO RESTART", 400, 280);
+                requestAnimationFrame(update); return;
+            }
+
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.3)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            particles.forEach((p, i) => {
+                p.x += p.dx; p.y += p.dy; p.life -= 0.02;
+                ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 3, 3);
+                if(p.life <= 0) particles.splice(i, 1);
+            });
+            ctx.globalAlpha = 1;
+
+            if (obstacle) {
+                obstacle.timer--;
+                scannerY = (scannerY + 5) % canvas.height;
+                ctx.strokeStyle = "rgba(0, 255, 255, 0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, scannerY); ctx.lineTo(canvas.width, scannerY); ctx.stroke();
+                let opacity = (obstacle.timer < 120 && Math.floor(obstacle.timer / 10) % 2 === 0) ? 0.2 : 1;
+                let x1 = obstacle.x, y1 = obstacle.y - 60, x2 = obstacle.x + 60, y2 = obstacle.y + 60, x3 = obstacle.x - 60, y3 = obstacle.y + 60;
+                ctx.strokeStyle = `rgba(255, 255, 0, ${opacity})`; ctx.lineWidth = 4;
+                ctx.shadowBlur = (opacity > 0.5) ? 15 : 0; ctx.shadowColor = "#ff0";
+                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.closePath(); ctx.stroke(); ctx.shadowBlur = 0;
+                if (obstacle.timer <= 0) { obstacle = null; msgEl.innerText = ""; }
+            }
+
+            enemies.forEach((e, i) => {
+                e.x += e.dx * gameSpeedMult; e.y += e.dy * gameSpeedMult;
+                if(e.y < 10 || e.y > 490) e.dy *= -1;
+                ctx.fillStyle = "#f04"; ctx.fillRect(e.x-8, e.y-8, 16, 16);
+                if (e.x < 40 && e.x > 15 && e.y > pY && e.y < pY + pH) { 
+                    pH = Math.max(30, pH - 15); 
+                    shake(25); 
+                    SFX.damage();
+                    createParticles(e.x, e.y, "#f04", 15); 
+                    enemies.splice(i, 1); 
+                }
+                else if (e.x < -20) enemies.splice(i, 1);
+            });
+
+            powerups.forEach((p, i) => {
+                p.x += p.dx * gameSpeedMult; p.y += p.dy * gameSpeedMult;
+                if(p.y < 10 || p.y > 490) p.dy *= -1;
+                ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, 18, 18);
+                if (p.x < 40 && p.x > 15 && p.y > pY && p.y < pY + pH) {
+                    SFX.powerup();
+                    if (p.n === 'WIDE') pH = 180;
+                    if (p.n === 'SLOW') gameSpeedMult = 0.4;
+                    if (p.n === 'MULTI') {
+                        balls.push({x: 45, y: pY + pH/2, dx: 6, dy: (Math.random()-0.5)*10});
+                    }
+                    bTimer = 500; msgEl.innerText = p.n + " ACTIVE"; msgEl.style.color = p.c; bFill.style.backgroundColor = p.c; createParticles(p.x, p.y, p.c, 15); powerups.splice(i, 1);
+                } else if (p.x < -20) powerups.splice(i, 1);
+            });
+
+            if (bTimer > 0) { bTimer--; bFill.style.width = (bTimer / 5) + "%"; if (bTimer <= 0) forceResetUI(); }
+
+            balls.forEach((b, i) => {
+                b.x += b.dx * gameSpeedMult; b.y += b.dy * gameSpeedMult;
+                ctx.fillStyle = `hsl(${Math.max(0, 120 - (Math.sqrt(b.dx**2 + b.dy**2) - 7) * 12)}, 100%, 50%)`;
+                ctx.beginPath(); ctx.arc(b.x, b.y, 9, 0, 7); ctx.fill();
+                
+                if(b.y < 10 || b.y > 490) { b.dy *= -1; SFX.hit(); }
+                if(b.x > 790) { b.dx *= -1; b.x = 790; shake(10); SFX.hit(); }
+
+                if (obstacle && isPointInTriangle(b.x, b.y, obstacle.x, obstacle.y - 60, obstacle.x + 60, obstacle.y + 60, obstacle.x - 60, obstacle.y + 60)) {
+                    b.dx = Math.abs(b.dx) * 1.05; b.dy = (b.y < obstacle.y) ? -Math.abs(b.dy) : Math.abs(b.dy);
+                    b.x += b.dx * gameSpeedMult; createParticles(b.x, b.y, "#ff0", 10); shake(5); SFX.triangle();
+                }
+
+                if(b.dx < 0 && b.x < 40 && b.x > 15 && b.y > pY && b.y < pY + pH) {
+                    b.dx = Math.abs(b.dx) * 1.08;
+                    b.dy = (Math.abs(b.dy) < 1.5) ? (Math.random() > 0.5 ? 4 : -4) : b.dy * 1.08;
+                    b.x = 42; score++; scoreEl.innerText = score;
+                    shake(15); SFX.paddle();
+                    createParticles(b.x, b.y, '#0f0', 15);
+                    if (Math.random() > 0.7) {
+                        const t = [{n:'WIDE',c:'#0f0'},{n:'SLOW',c:'#0ff'},{n:'MULTI',c:'#ff0'}][Math.floor(Math.random()*3)];
+                        powerups.push({x:780, y:Math.random()*400+50, dx:-3, dy:(Math.random()>0.5?2:-2), ...t});
+                    }
+                    if (Math.random() > 0.8) enemies.push({x:800, y:Math.random()*460+20, dx:-(4+Math.random()*3), dy:(Math.random()>0.5?2:-2)});
+                    if (score > 0 && score % 10 === 0 && lastSpawnScore !== score) {
+                        lastSpawnScore = score;
+                        obstacle = { x: 450 + Math.random() * 200, y: 150 + Math.random() * 200, timer: 540 };
+                        msgEl.innerText = "TRIANGLE ACTIVE"; msgEl.style.color = "#ff0";
+                    }
+                }
+
+                if(b.x < -20) {
+                    if(balls.length > 1) { balls.splice(i, 1); SFX.hit(); }
+                    else { 
+                        if(score > best) { best = score; localStorage.setItem('rv_best', best); bestEl.innerText = best; } 
+                        isGameOver = true; 
+                        SFX.damage();
+                        forceResetUI(); 
+                    }
+                }
+            });
+
+            ctx.fillStyle = (bTimer > 0) ? bFill.style.backgroundColor : '#0f0';
+            ctx.shadowBlur = 15; ctx.shadowColor = ctx.fillStyle;
+            ctx.fillRect(15, pY, 12, pH); ctx.shadowBlur = 0;
+            requestAnimationFrame(update);
+        }
+        update();
+    </script>
+</body>
+</html>
