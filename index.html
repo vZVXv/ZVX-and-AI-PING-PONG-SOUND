@@ -88,11 +88,17 @@
             return Math.abs(area - (a1 + a2 + a3)) < 1.0;
         }
 
-        window.onmousemove = (e) => {
-            if (isGameOver) return;
-            const r = canvas.getBoundingClientRect();
-            pY = Math.max(0, Math.min(canvas.height - pH, (e.clientY - r.top) * (canvas.height / r.height) - pH / 2));
-        };
+// Глобальное отслеживание мыши, даже за пределами canvas
+window.addEventListener('mousemove', (e) => {
+    if (isGameOver) return;
+    
+    const r = canvas.getBoundingClientRect();
+    // Вычисляем позицию курсора относительно canvas, даже если он вне его
+    const relativeY = (e.clientY - r.top) * (canvas.height / r.height);
+    
+    // Ограничиваем ракетку строго в пределах поля (0 до canvas.height - pH)
+    pY = Math.max(0, Math.min(canvas.height - pH, relativeY - pH / 2));
+});
         window.onclick = () => { if (isGameOver) resetGame(); };
 
         function forceResetUI() {
