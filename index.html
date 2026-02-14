@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ZVX and AI PING PONG v1.1.0</title>
+    <title>ZVX and AI PING PONG v1.1.3</title>
     <style>
         :root { --neon: #0f0; --bg: #050505; }
         body { 
@@ -11,7 +11,6 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; margin: 0; overflow: hidden; user-select: none; touch-action: none;
         }
-        
         #header {
             width: 800px; max-width: 95%; text-align: center; font-size: clamp(16px, 5vw, 32px);
             font-weight: 900; letter-spacing: 5px; padding: 10px 0; margin-bottom: 10px;
@@ -19,15 +18,16 @@
             animation: flicker 3s infinite;
         }
         @keyframes flicker { 0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; } 20%, 24%, 55% { opacity: 0.7; } }
-
-        canvas { border: 2px solid var(--neon); background: #000; max-width: 95%; max-height: 500px; cursor: none; }
+        
+        #game-container { position: relative; max-width: 95%; }
+        canvas { border: 2px solid var(--neon); background: #000; display: block; max-width: 100%; max-height: 500px; cursor: none; }
+        
         .hud { width: 800px; max-width: 95%; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: clamp(12px, 4vw, 22px); font-weight: bold; }
         #b-bar { width: 800px; max-width: 95%; height: 4px; background: #111; margin-top: 8px; overflow: hidden; border-radius: 2px; }
         #b-fill { width: 0%; height: 100%; transition: width 0.1s linear; background: #0f0; }
-
+        
         #slider-container { width: 800px; max-width: 95%; margin-top: 40px; display: none; }
         .touch-device #slider-container { display: block; }
-
         #paddleControl {
             -webkit-appearance: none; width: 100%; height: 25px; background: #000;
             border: 2px solid var(--neon); border-radius: 15px; outline: none;
@@ -37,20 +37,16 @@
             background: #000; border: 3px solid var(--neon); border-radius: 10px;
             box-shadow: 0 0 15px var(--neon); cursor: pointer;
         }
-        #paddleControl::-moz-range-thumb {
-            width: 65px; height: 65px; background: #000; 
-            border: 3px solid var(--neon); border-radius: 10px; box-shadow: 0 0 15px var(--neon);
-        }
     </style>
 </head>
 <body>
-    <div id="header">ZVX and AI PING PONG v1.1.0</div>
+    <div id="header">ZVX and AI PING PONG v1.1.3</div>
     <div class="hud">
         <div>SCORE: <span id="score">0</span></div>
         <div id="msg" style="color:#fff; font-size: 14px; text-shadow: 0 0 5px #fff; text-align: center;"></div>
         <div>BEST: <span id="best">0</span></div>
     </div>
-    <canvas id="game" width="800" height="500"></canvas>
+    <div id="game-container"><canvas id="game" width="800" height="500"></canvas></div>
     <div id="b-bar"><div id="b-fill"></div></div>
     <div id="slider-container"><input type="range" id="paddleControl" min="0" max="100" value="50"></div>
 
@@ -59,6 +55,7 @@
         const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best');
         const bFill = document.getElementById('b-fill'), msgEl = document.getElementById('msg'), slider = document.getElementById('paddleControl');
         
+        let gameActive = false;
         const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         if (isTouch) document.body.classList.add('touch-device');
 
@@ -84,8 +81,19 @@
         let pY = 200, pH = 90, particles = [], powerups = [], enemies = [], balls = [{x: 400, y: 250, dx: 5, dy: 5}]; 
         let isGameOver = false, obstacle = null, lastSpawnScore = -1, bTimer = 0, gameSpeedMult = 1.0, scannerY = 0;
 
-        function updateFromSlider() { if (!isGameOver) pY = (slider.value / 100) * (canvas.height - pH); }
-        slider.addEventListener('input', updateFromSlider);
+        function tryStart() {
+            if (!gameActive || isGameOver) {
+                SFX.init();
+                resetGame();
+                gameActive = true;
+                isGameOver = false;
+            }
+        }
+
+        canvas.addEventListener('mousedown', tryStart);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); tryStart(); });
+        slider.addEventListener('input', () => { if (!isGameOver) pY = (slider.value / 100) * (canvas.height - pH); });
+        slider.addEventListener('touchstart', tryStart);
 
         window.addEventListener('mousemove', (e) => {
             if (isGameOver || isTouch) return;
@@ -93,10 +101,6 @@
             pY = Math.max(0, Math.min(canvas.height - pH, (e.clientY - r.top) * (canvas.height / r.height) - pH / 2));
             slider.value = (pY / (canvas.height - pH)) * 100;
         });
-
-        const handleReset = () => { SFX.init(); if (isGameOver) resetGame(); };
-        window.addEventListener('touchstart', handleReset);
-        window.onclick = handleReset;
 
         function isPointInTriangle(px, py, x1, y1, x2, y2, x3, y3) {
             let area = Math.abs((x1*(y2-y3) + x2*(y3-y1) + x3*(y1-y2))/2);
@@ -109,30 +113,39 @@
         function forceResetUI() { bTimer = 0; bFill.style.width = "0%"; msgEl.innerText = ""; pH = 90; gameSpeedMult = 1.0; slider.value = 50; }
         function shake(intensity = 15) { canvas.style.transform = `translate(${(Math.random()-0.5)*intensity}px, ${(Math.random()-0.5)*intensity}px)`; setTimeout(() => canvas.style.transform = 'translate(0,0)', 50); }
         function createParticles(x, y, color, count=12) { for(let i=0; i<count; i++) particles.push({ x, y, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, life: 1, color }); }
-        function resetGame() { score = 0; scoreEl.innerText = 0; lastSpawnScore = -1; balls = [{x: 400, y: 250, dx: 5, dy: 5}]; forceResetUI(); powerups = []; enemies = []; particles = []; obstacle = null; isGameOver = false; }
+        function resetGame() { score = 0; scoreEl.innerText = 0; lastSpawnScore = -1; balls = [{x: 400, y: 250, dx: 5, dy: 5}]; forceResetUI(); powerups = []; enemies = []; particles = []; obstacle = null; }
+
+        function drawButton(text) {
+            ctx.strokeStyle = "#0f0"; ctx.lineWidth = 3; ctx.strokeRect(300, 220, 200, 60);
+            ctx.fillStyle = "#0f0"; ctx.font = "bold 24px Consolas"; ctx.textAlign = "center";
+            ctx.shadowBlur = 15; ctx.shadowColor = "#0f0";
+            ctx.fillText(text, 400, 258); ctx.shadowBlur = 0;
+        }
 
         function update() {
-            if (isGameOver) {
+            if (!gameActive || isGameOver) {
                 ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = "white"; ctx.font = "bold 30px Consolas"; ctx.textAlign = "center";
-                ctx.fillText("GAME OVER", 400, 230);
-                ctx.font = "18px Consolas"; ctx.fillStyle = "#aaa"; ctx.fillText("CLICK OR TAP TO RESTART", 400, 280);
+                if (isGameOver) {
+                    ctx.fillStyle = "white"; ctx.font = "bold 40px Consolas"; ctx.textAlign = "center";
+                    ctx.fillText("GAME OVER", 400, 150);
+                    ctx.font = "20px Consolas"; ctx.fillText("SCORE: " + score, 400, 190);
+                    drawButton("RESTART");
+                } else { drawButton("START"); }
                 requestAnimationFrame(update); return;
             }
+
             ctx.fillStyle = 'rgba(5, 5, 5, 0.3)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             particles.forEach((p, i) => { p.x += p.dx; p.y += p.dy; p.life -= 0.02; ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 3, 3); if(p.life <= 0) particles.splice(i, 1); });
             ctx.globalAlpha = 1;
 
             if (obstacle) {
-                obstacle.timer--;
-                scannerY = (scannerY + 5) % canvas.height;
+                obstacle.timer--; scannerY = (scannerY + 5) % canvas.height;
                 ctx.strokeStyle = "rgba(0, 255, 255, 0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, scannerY); ctx.lineTo(canvas.width, scannerY); ctx.stroke();
                 let opacity = (obstacle.timer < 120 && Math.floor(obstacle.timer / 10) % 2 === 0) ? 0.2 : 1;
                 let x1 = obstacle.x, y1 = obstacle.y - 60, x2 = obstacle.x + 60, y2 = obstacle.y + 60, x3 = obstacle.x - 60, y3 = obstacle.y + 60;
                 ctx.strokeStyle = `rgba(255, 255, 0, ${opacity})`; ctx.lineWidth = 4;
                 ctx.shadowBlur = (opacity > 0.5) ? 15 : 0; ctx.shadowColor = "#ff0";
-                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.closePath(); ctx.stroke();
-                ctx.shadowBlur = 0;
+                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.closePath(); ctx.stroke(); ctx.shadowBlur = 0;
                 if (obstacle.timer <= 0) { obstacle = null; msgEl.innerText = ""; }
             }
 
@@ -149,8 +162,7 @@
                 if (p.x < 40 && p.x > 15 && p.y > pY && p.y < pY + pH) {
                     SFX.powerup(); if (p.n === 'WIDE') pH = 180; if (p.n === 'SLOW') gameSpeedMult = 0.4;
                     if (p.n === 'MULTI') balls.push({x: 45, y: pY + pH/2, dx: 6, dy: (Math.random()-0.5)*10});
-                    bTimer = 500; msgEl.innerText = p.n + " ACTIVE"; msgEl.style.color = p.c; bFill.style.backgroundColor = p.c; 
-                    createParticles(p.x, p.y, p.c, 15); powerups.splice(i, 1);
+                    bTimer = 500; msgEl.innerText = p.n + " ACTIVE"; msgEl.style.color = p.c; bFill.style.backgroundColor = p.c; createParticles(p.x, p.y, p.c, 15); powerups.splice(i, 1);
                 } else if (p.x < -20) powerups.splice(i, 1);
             });
 
@@ -168,8 +180,7 @@
                 }
                 if(b.dx < 0 && b.x < 40 && b.x > 15 && b.y > pY && b.y < pY + pH) {
                     b.dx = Math.abs(b.dx) * 1.08; b.dy = (Math.abs(b.dy) < 1.5) ? (Math.random() > 0.5 ? 4 : -4) : b.dy * 1.08;
-                    b.x = 42; score++; scoreEl.innerText = score; shake(15); SFX.paddle(); 
-                    if (navigator.vibrate) navigator.vibrate(20); // ВИБРАЦИЯ
+                    b.x = 42; score++; scoreEl.innerText = score; shake(15); SFX.paddle(); if (navigator.vibrate) navigator.vibrate(20);
                     createParticles(b.x, b.y, '#0f0', 15);
                     if (Math.random() > 0.7) { const t = [{n:'WIDE',c:'#0f0'},{n:'SLOW',c:'#0ff'},{n:'MULTI',c:'#ff0'}][Math.floor(Math.random()*3)]; powerups.push({x:780, y:Math.random()*400+50, dx:-3, dy:(Math.random()>0.5?2:-2), ...t}); }
                     if (Math.random() > 0.8) enemies.push({x:800, y:Math.random()*460+20, dx:-(4+Math.random()*3), dy:(Math.random()>0.5?2:-2)});
