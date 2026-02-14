@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ZVX and AI PING PONG v1.2.4</title>
+    <title>ZVX and AI PING PONG v1.2.5</title>
     <style>
         :root { --neon: #0f0; --bg: #050505; }
         body { 
@@ -11,18 +11,29 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center; 
             height: 100vh; margin: 0; overflow: hidden; user-select: none; touch-action: none;
         }
+        /* Стили заголовка с эффектом мерцания */
         #header {
             width: 800px; max-width: 95%; text-align: center; font-size: clamp(16px, 5vw, 32px);
             font-weight: 900; letter-spacing: 5px; padding: 10px 0; margin-bottom: 10px;
             border: 3px solid var(--neon); text-shadow: 0 0 10px var(--neon);
             animation: flicker 3s infinite; transition: all 0.4s ease;
         }
-        @keyframes flicker { 0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; } 20%, 24%, 55% { opacity: 0.7; } }
+        @keyframes flicker { 
+            0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; } 
+            20%, 24%, 55% { opacity: 0.7; } 
+        }
+        
         #game-container { position: relative; max-width: 95%; }
         canvas { border: 2px solid var(--neon); background: #000; display: block; max-width: 100%; max-height: 500px; cursor: none; transition: border-color 0.4s ease; }
+        
+        /* Панель счета (HUD) */
         .hud { width: 800px; max-width: 95%; display: flex; justify-content: space-between; margin-bottom: 10px; font-size: clamp(12px, 4vw, 22px); font-weight: bold; }
+        
+        /* Полоска длительности бонуса */
         #b-bar { width: 800px; max-width: 95%; height: 4px; background: #111; margin-top: 8px; overflow: hidden; border-radius: 2px; }
         #b-fill { width: 0%; height: 100%; transition: width 0.1s linear; background: #0f0; }
+        
+        /* Контроллер для мобильных устройств */
         #slider-container { width: 800px; max-width: 95%; margin-top: 40px; display: none; }
         .touch-device #slider-container { display: block; }
         #paddleControl { -webkit-appearance: none; width: 100%; height: 25px; background: #000; border: 2px solid var(--neon); border-radius: 15px; outline: none; }
@@ -30,54 +41,93 @@
     </style>
 </head>
 <body>
-    <div id="header">ZVX and AI PING PONG v1.2.4</div>
+    <div id="header">ZVX and AI PING PONG v1.2.5</div>
+    
     <div class="hud">
         <div>SCORE: <span id="score">0</span> <span id="argus-label" style="display:none; color:#a0f;">| ARGUS: <span id="argus-score">0</span></span></div>
         <div id="msg" style="color:#fff; font-size: 14px; text-shadow: 0 0 5px #fff; text-align: center;"></div>
         <div>BEST: <span id="best">0</span> <span id="argus-best-label" style="display:none; color:#a0f;">(A: <span id="argus-best">0</span>)</span></div>
     </div>
-    <div id="game-container"><canvas id="game" width="800" height="500"></canvas></div>
+
+    <div id="game-container">
+        <canvas id="game" width="800" height="500"></canvas>
+    </div>
+
     <div id="b-bar"><div id="b-fill"></div></div>
-    <div id="slider-container"><input type="range" id="paddleControl" min="0" max="100" value="50"></div>
+    
+    <div id="slider-container">
+        <input type="range" id="paddleControl" min="0" max="100" value="50">
+    </div>
 
     <script>
-        const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
-        const headerEl = document.getElementById('header'), scoreEl = document.getElementById('score'), bestEl = document.getElementById('best');
-        const bFill = document.getElementById('b-fill'), msgEl = document.getElementById('msg'), slider = document.getElementById('paddleControl');
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const headerEl = document.getElementById('header');
+        const scoreEl = document.getElementById('score');
+        const bestEl = document.getElementById('best');
+        const bFill = document.getElementById('b-fill');
+        const msgEl = document.getElementById('msg');
+        const slider = document.getElementById('paddleControl');
         
-        let gameActive = false, isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        // Глобальные состояния
+        let gameActive = false;
+        let isGameOver = false;
+        let isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
         if (isTouch) document.body.classList.add('touch-device');
 
+        // Звуковая система на базе Web Audio API
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         let audioCtx = null;
         const SFX = {
-            init() { if (!audioCtx) audioCtx = new AudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume(); },
+            init() { 
+                if (!audioCtx) audioCtx = new AudioContext(); 
+                if (audioCtx.state === 'suspended') audioCtx.resume(); 
+            },
             play(freq, type, duration, vol = 0.1) {
-                this.init(); const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-                osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                this.init();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
                 gain.gain.setValueAtTime(vol, audioCtx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-                osc.connect(gain); gain.connect(audioCtx.destination);
-                osc.start(); osc.stop(audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
             },
-            hit() { this.play(150, 'square', 0.1); }, paddle() { this.play(440, 'sine', 0.15); },
-            powerup() { this.play(880, 'triangle', 0.4); }, damage() { this.play(60, 'sawtooth', 0.3, 0.2); },
+            hit() { this.play(150, 'square', 0.1); },
+            paddle() { this.play(440, 'sine', 0.15); },
+            powerup() { this.play(880, 'triangle', 0.4); },
+            damage() { this.play(60, 'sawtooth', 0.3, 0.2); },
             triangle() { this.play(200, 'sine', 0.1, 0.2); }
         };
 
-        // Сгруппированные переменные счета и рекордов
+        // Хранение рекордов
+        let score = 0;
         let argusScore = 0;
+        let best = localStorage.getItem('rv_best') || 0;
         let argusBest = localStorage.getItem('rv_argus_best') || 0;
-        let score = 0, best = localStorage.getItem('rv_best') || 0;
         
         bestEl.innerText = best;
         document.getElementById('argus-best').innerText = argusBest;
 
-        let pY = 200, pH = 90, particles = [], powerups = [], enemies = [], balls = [{x: 400, y: 250, dx: 5, dy: 5}]; 
-        let isGameOver = false, obstacle = null, lastSpawnScore = -1, bTimer = 0, gameSpeedMult = 1.0, scannerY = 0;
-        let trajOn = false;
+        // Игровые объекты и параметры
+        let pY = 200; // Позиция ракетки
+        let pH = 90;  // Высота ракетки
+        let particles = [];
+        let powerups = [];
+        let enemies = [];
+        let balls = [{x: 400, y: 250, dx: 5, dy: 5}]; 
+        let obstacle = null;
+        let lastSpawnScore = -1;
+        let bTimer = 0; // Таймер активного бонуса
+        let gameSpeedMult = 1.0;
+        let scannerY = 0; // Для визуального эффекта препятствия
+        let trajOn = false; // Режим ARGUS
         const MAX_SPEED = 22;
 
+        // Секретный режим Argus (активируется через консоль: Argus2D)
         Object.defineProperty(window, 'Argus2D', {
             get: function() {
                 trajOn = !trajOn;
@@ -102,21 +152,36 @@
             }
         });
 
-        function tryStart() { if (!gameActive || isGameOver) { SFX.init(); resetGame(); gameActive = true; isGameOver = false; } }
+        // Запуск игры
+        function tryStart() { 
+            if (!gameActive || isGameOver) { 
+                SFX.init(); 
+                resetGame(); 
+                gameActive = true; 
+                isGameOver = false; 
+            } 
+        }
         
+        // Слушатели событий
         canvas.addEventListener('mousedown', tryStart);
         canvas.addEventListener('touchstart', (e) => { e.preventDefault(); tryStart(); });
         
         slider.addEventListener('touchstart', () => { if (!gameActive || isGameOver) tryStart(); }, {passive: true});
-        slider.addEventListener('input', () => { if (!isGameOver) pY = (slider.value / 100) * (canvas.height - pH); });
+        slider.addEventListener('input', () => { 
+            if (!isGameOver) {
+                pY = (slider.value / 100) * (canvas.height - pH);
+            }
+        });
         
         window.addEventListener('mousemove', (e) => {
             if (isGameOver || isTouch) return;
             const r = canvas.getBoundingClientRect();
+            // Расчет позиции ракетки относительно курсора
             pY = Math.max(0, Math.min(canvas.height - pH, (e.clientY - r.top) * (canvas.height / r.height) - pH / 2));
             slider.value = (pY / (canvas.height - pH)) * 100;
         });
 
+        // Математическая проверка вхождения точки в треугольное препятствие
         function isPointInTriangle(px, py, x1, y1, x2, y2, x3, y3) {
             let area = Math.abs((x1*(y2-y3) + x2*(y3-y1) + x3*(y1-y2))/2);
             let a1 = Math.abs((px*(y1-y2) + x1*(y2-py) + x2*(py-y1))/2);
@@ -125,79 +190,212 @@
             return Math.abs(area - (a1 + a2 + a3)) < 1.0;
         }
 
-        function forceResetUI() { bTimer = 0; bFill.style.width = "0%"; msgEl.innerText = ""; pH = trajOn ? 250 : 90; gameSpeedMult = 1.0; slider.value = 50; }
-        function shake(intensity = 15) { canvas.style.transform = `translate(${(Math.random()-0.5)*intensity}px, ${(Math.random()-0.5)*intensity}px)`; setTimeout(() => canvas.style.transform = 'translate(0,0)', 50); }
-        function createParticles(x, y, color, count=12) { for(let i=0; i<count; i++) particles.push({ x, y, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, life: 1, color }); }
-        
-        function resetGame() { 
-            score = 0; argusScore = 0; 
-            scoreEl.innerText = 0; document.getElementById('argus-score').innerText = 0;
-            lastSpawnScore = -1; 
-            balls = [{x: 400, y: 250, dx: 5, dy: 5}]; 
-            forceResetUI(); powerups = []; enemies = []; particles = []; obstacle = null; 
+        // Сброс интерфейса к дефолту
+        function forceResetUI() { 
+            bTimer = 0; 
+            bFill.style.width = "0%"; 
+            msgEl.innerText = ""; 
+            pH = trajOn ? 250 : 90; 
+            gameSpeedMult = 1.0; 
+            slider.value = 50; 
         }
 
+        // Эффект тряски экрана
+        function shake(intensity = 15) { 
+            canvas.style.transform = `translate(${(Math.random()-0.5)*intensity}px, ${(Math.random()-0.5)*intensity}px)`; 
+            setTimeout(() => canvas.style.transform = 'translate(0,0)', 50); 
+        }
+
+        // Создание взрыва частиц
+        function createParticles(x, y, color, count=12) { 
+            for(let i=0; i<count; i++) {
+                particles.push({ 
+                    x, y, 
+                    dx: (Math.random()-0.5)*10, 
+                    dy: (Math.random()-0.5)*10, 
+                    life: 1, 
+                    color 
+                }); 
+            }
+        }
+        
+        // Полный сброс параметров перед новой игрой
+        function resetGame() { 
+            score = 0; 
+            argusScore = 0; 
+            scoreEl.innerText = 0; 
+            document.getElementById('argus-score').innerText = 0;
+            lastSpawnScore = -1; 
+            balls = [{x: 400, y: 250, dx: 5, dy: 5}]; 
+            forceResetUI(); 
+            powerups = []; 
+            enemies = []; 
+            particles = []; 
+            obstacle = null; 
+        }
+
+        // ГЛАВНЫЙ ИГРОВОЙ ЦИКЛ
         function update() {
+            // Экран меню / Game Over
             if (!gameActive || isGameOver) {
-                ctx.fillStyle = "#000"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#000"; 
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
                 const btnColor = trajOn ? "#a0f" : "#0f0";
-                ctx.strokeStyle = btnColor; ctx.lineWidth = 3; ctx.strokeRect(300, 220, 200, 60);
-                ctx.fillStyle = btnColor; ctx.font = "bold 24px Consolas"; ctx.textAlign = "center";
+                ctx.strokeStyle = btnColor; 
+                ctx.lineWidth = 3; 
+                ctx.strokeRect(300, 220, 200, 60);
+                
+                ctx.fillStyle = btnColor; 
+                ctx.font = "bold 24px Consolas"; 
+                ctx.textAlign = "center";
+                
                 if (isGameOver) {
-                    ctx.fillStyle = "white"; ctx.font = "bold 40px Consolas"; ctx.fillText("GAME OVER", 400, 150);
-                    ctx.font = "20px Consolas"; ctx.fillText("NORMAL SCORE: " + score, 400, 190);
-                    if(argusScore > 0) { ctx.fillStyle = "#a0f"; ctx.fillText("ARGUS SCORE: " + argusScore, 400, 215); }
-                    ctx.fillStyle = btnColor; ctx.fillText("RESTART", 400, 258);
-                } else { ctx.fillText("START", 400, 258); }
-                requestAnimationFrame(update); return;
+                    ctx.fillStyle = "white"; 
+                    ctx.font = "bold 40px Consolas"; 
+                    ctx.fillText("GAME OVER", 400, 150);
+                    ctx.font = "20px Consolas"; 
+                    ctx.fillText("NORMAL SCORE: " + score, 400, 190);
+                    if(argusScore > 0) { 
+                        ctx.fillStyle = "#a0f"; 
+                        ctx.fillText("ARGUS SCORE: " + argusScore, 400, 215); 
+                    }
+                    ctx.fillStyle = btnColor; 
+                    ctx.fillText("RESTART", 400, 258);
+                } else { 
+                    ctx.fillText("START", 400, 258); 
+                }
+                requestAnimationFrame(update); 
+                return;
             }
 
-            ctx.fillStyle = 'rgba(5, 5, 5, 0.3)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            particles.forEach((p, i) => { p.x += p.dx; p.y += p.dy; p.life -= 0.02; ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 3, 3); if(p.life <= 0) particles.splice(i, 1); });
+            // Отрисовка фона (с легким шлейфом)
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.3)'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Обработка частиц
+            particles.forEach((p, i) => { 
+                p.x += p.dx; 
+                p.y += p.dy; 
+                p.life -= 0.02; 
+                ctx.fillStyle = p.color; 
+                ctx.globalAlpha = p.life; 
+                ctx.fillRect(p.x, p.y, 3, 3); 
+                if(p.life <= 0) particles.splice(i, 1); 
+            });
             ctx.globalAlpha = 1;
 
+            // Логика препятствия-треугольника
             if (obstacle) {
-                obstacle.timer--; scannerY = (scannerY + 5) % canvas.height;
-                ctx.strokeStyle = "rgba(0, 255, 255, 0.1)"; ctx.lineWidth = 1; ctx.beginPath(); 
-                ctx.moveTo(0, scannerY); ctx.lineTo(canvas.width, scannerY); ctx.stroke();
+                obstacle.timer--; 
+                scannerY = (scannerY + 5) % canvas.height;
+                
+                // Визуальная линия сканера
+                ctx.strokeStyle = "rgba(0, 255, 255, 0.1)"; 
+                ctx.lineWidth = 1; 
+                ctx.beginPath(); 
+                ctx.moveTo(0, scannerY); 
+                ctx.lineTo(canvas.width, scannerY); 
+                ctx.stroke();
+
+                // Мерцание перед исчезновением
                 let op = (obstacle.timer < 120 && Math.floor(obstacle.timer / 10) % 2 === 0) ? 0.2 : 1;
-                let x1 = obstacle.x, y1 = obstacle.y - 60, x2 = obstacle.x + 60, y2 = obstacle.y + 60, x3 = obstacle.x - 60, y3 = obstacle.y + 60;
-                ctx.strokeStyle = `rgba(255, 255, 0, ${op})`; ctx.lineWidth = 4;
-                ctx.shadowBlur = (op > 0.5) ? 15 : 0; ctx.shadowColor = "#ff0";
-                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.closePath(); ctx.stroke(); ctx.shadowBlur = 0;
-                if (obstacle.timer <= 0) { obstacle = null; if(!trajOn) msgEl.innerText = ""; }
+                let x1 = obstacle.x, y1 = obstacle.y - 60, 
+                    x2 = obstacle.x + 60, y2 = obstacle.y + 60, 
+                    x3 = obstacle.x - 60, y3 = obstacle.y + 60;
+                
+                ctx.strokeStyle = `rgba(255, 255, 0, ${op})`; 
+                ctx.lineWidth = 4;
+                ctx.shadowBlur = (op > 0.5) ? 15 : 0; 
+                ctx.shadowColor = "#ff0";
+                
+                ctx.beginPath(); 
+                ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); 
+                ctx.closePath(); ctx.stroke(); 
+                ctx.shadowBlur = 0;
+
+                if (obstacle.timer <= 0) { 
+                    obstacle = null; 
+                    if(!trajOn) msgEl.innerText = ""; 
+                }
             }
 
+            // Обработка врагов (красные квадраты)
             enemies.forEach((e, i) => {
-                e.x += e.dx * gameSpeedMult; e.y += e.dy * gameSpeedMult; if(e.y < 10 || e.y > 490) e.dy *= -1;
-                ctx.fillStyle = "#f04"; ctx.fillRect(e.x-8, e.y-8, 16, 16);
-                if (e.x < 40 && e.x > 15 && e.y > pY && e.y < pY + pH) { pH = Math.max(30, pH - 15); shake(25); SFX.damage(); createParticles(e.x, e.y, "#f04", 15); enemies.splice(i, 1); }
-                else if (e.x < -20) enemies.splice(i, 1);
+                e.x += e.dx * gameSpeedMult; 
+                e.y += e.dy * gameSpeedMult; 
+                if(e.y < 10 || e.y > 490) e.dy *= -1;
+                
+                ctx.fillStyle = "#f04"; 
+                ctx.fillRect(e.x-8, e.y-8, 16, 16);
+
+                // Столкновение врага с ракеткой игрока
+                if (e.x < 40 && e.x > 15 && e.y > pY && e.y < pY + pH) { 
+                    pH = Math.max(30, pH - 15); // Уменьшаем ракетку
+                    shake(25); 
+                    SFX.damage(); 
+                    createParticles(e.x, e.y, "#f04", 15); 
+                    enemies.splice(i, 1); 
+                } else if (e.x < -20) {
+                    enemies.splice(i, 1);
+                }
             });
 
+            // Обработка бонусов (Power-ups)
             powerups.forEach((p, i) => {
-                p.x += p.dx * gameSpeedMult; p.y += p.dy * gameSpeedMult; if(p.y < 10 || p.y > 490) p.dy *= -1;
-                ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, 18, 18);
+                p.x += p.dx * gameSpeedMult; 
+                p.y += p.dy * gameSpeedMult; 
+                if(p.y < 10 || p.y > 490) p.dy *= -1;
+                
+                ctx.fillStyle = p.c; 
+                ctx.fillRect(p.x, p.y, 18, 18);
+
+                // Сбор бонуса ракеткой
                 if (p.x < 40 && p.x > 15 && p.y > pY && p.y < pY + pH) {
-                    SFX.powerup(); if (p.n === 'WIDE') pH = 180; if (p.n === 'SLOW') gameSpeedMult = 0.4;
-                    if (p.n === 'MULTI') balls.push({x: 45, y: pY + pH/2, dx: 6, dy: (Math.random()-0.5)*10});
-                    bTimer = 500; msgEl.innerText = p.n + " ACTIVE"; msgEl.style.color = p.c; bFill.style.backgroundColor = p.c; createParticles(p.x, p.y, p.c, 15); powerups.splice(i, 1);
-                } else if (p.x < -20) powerups.splice(i, 1);
+                    SFX.powerup(); 
+                    if (p.n === 'WIDE') pH = 180; 
+                    if (p.n === 'SLOW') gameSpeedMult = 0.4;
+                    if (p.n === 'MULTI') {
+                        balls.push({x: 45, y: pY + pH/2, dx: 6, dy: (Math.random()-0.5)*10});
+                    }
+                    
+                    bTimer = 500; 
+                    msgEl.innerText = p.n + " ACTIVE"; 
+                    msgEl.style.color = p.c; 
+                    bFill.style.backgroundColor = p.c; 
+                    createParticles(p.x, p.y, p.c, 15); 
+                    powerups.splice(i, 1);
+                } else if (p.x < -20) {
+                    powerups.splice(i, 1);
+                }
             });
 
-            if (bTimer > 0) { bTimer--; bFill.style.width = (bTimer / 5) + "%"; if (bTimer <= 0) forceResetUI(); }
+            // Таймер прогресс-бара бонуса
+            if (bTimer > 0) { 
+                bTimer--; 
+                bFill.style.width = (bTimer / 5) + "%"; 
+                if (bTimer <= 0) forceResetUI(); 
+            }
 
+            // ЛОГИКА МЯЧЕЙ
             balls.forEach((b, i) => {
+                // Отрисовка траектории (только в режиме Argus)
                 if (trajOn) {
                     let tx = b.x, ty = b.y, tdx = b.dx, tdy = b.dy;
-                    ctx.beginPath(); ctx.moveTo(tx, ty);
+                    ctx.beginPath(); 
+                    ctx.moveTo(tx, ty);
                     ctx.strokeStyle = `rgba(160, 0, 255, 0.4)`;
                     for (let j = 0; j < 250; j++) {
-                        tx += tdx * gameSpeedMult; ty += tdy * gameSpeedMult;
-                        if (ty < 10) { ty = 10; tdy = Math.abs(tdy); } else if (ty > 490) { ty = 490; tdy = -Math.abs(tdy); }
+                        tx += tdx * gameSpeedMult; 
+                        ty += tdy * gameSpeedMult;
+                        if (ty < 10) { ty = 10; tdy = Math.abs(tdy); } 
+                        else if (ty > 490) { ty = 490; tdy = -Math.abs(tdy); }
                         if (tx > 790) { tx = 790; tdx = -Math.abs(tdx); }
+                        
                         if (obstacle && isPointInTriangle(tx, ty, obstacle.x, obstacle.y-60, obstacle.x+60, obstacle.y+60, obstacle.x-60, obstacle.y+60)) {
-                            tdx = Math.abs(tdx) * 1.05; tdy = (ty < obstacle.y) ? -Math.abs(tdy) : Math.abs(tdy); tx += tdx;
+                            tdx = Math.abs(tdx) * 1.05; 
+                            tdy = (ty < obstacle.y) ? -Math.abs(tdy) : Math.abs(tdy); 
+                            tx += tdx;
                         }
                         if (j % 5 === 0) ctx.lineTo(tx, ty);
                         if (tx < 40 || tx > 800) break;
@@ -205,14 +403,17 @@
                     ctx.stroke();
                 }
 
+                // ПРОВЕРКА СТОЛКНОВЕНИЯ С РАКЕТКОЙ
                 let nextX = b.x + b.dx * gameSpeedMult;
                 if (b.dx < 0 && b.x >= 40 && nextX <= 40) {
                     let intersectY = b.y + (b.dy * (40 - b.x) / b.dx);
                     if (intersectY > pY && intersectY < pY + pH) {
+                        // Ускорение мяча
                         b.dx = Math.min(Math.abs(b.dx) * 1.08, MAX_SPEED);
                         b.dy = Math.max(Math.min(b.dy * 1.08, MAX_SPEED), -MAX_SPEED);
                         b.x = 42; 
                         
+                        // Начисление очков
                         if (trajOn) {
                             argusScore++;
                             document.getElementById('argus-score').innerText = argusScore;
@@ -220,34 +421,90 @@
                             score++;
                             scoreEl.innerText = score;
                         }
+						
+						                        // ПРОВЕРКА ПОЯВЛЕНИЯ ПРЕПЯТСТВИЯ
+                        // Вычисляем текущий активный счет в зависимости от режима
+                        const currentActiveScore = trajOn ? argusScore : score;
+
+                        // Если набрано кратно 10 очков и препятствие еще не создано для этого значения счета
+                        if (currentActiveScore > 0 && currentActiveScore % 10 === 0 && lastSpawnScore !== currentActiveScore) { 
+                            lastSpawnScore = currentActiveScore; 
+                            // Создаем объект препятствия: координаты X (в правой части), Y и время жизни (кадры)
+                            obstacle = { 
+                                x: 450 + Math.random() * 200, 
+                                y: 150 + Math.random() * 200, 
+                                timer: 540 
+                            }; 
+                            
+                            // Визуальное оповещение о появлении препятствия
+                            msgEl.innerText = "WARNING: OBSTACLE DETECTED";
+                            msgEl.style.color = "#ff0";
+                        }
+
                         
-                        shake(15); SFX.paddle();
+                        shake(15); 
+                        SFX.paddle();
                         createParticles(b.x, b.y, trajOn ? '#a0f' : '#0f0', 15);
+
+                        // Шанс выпадения бонуса (30%)
                         if (Math.random() > 0.7) { 
-                            const t = [{n:'WIDE',c:'#0f0'},{n:'SLOW',c:'#0ff'},{n:'MULTI',c:'#ff0'}][Math.floor(Math.random()*3)]; 
+                            const t = [
+                                {n:'WIDE',  c:'#0f0'},
+                                {n:'SLOW',  c:'#0ff'},
+                                {n:'MULTI', c:'#ff0'}
+                            ][Math.floor(Math.random()*3)]; 
                             powerups.push({x:780, y:Math.random()*400+50, dx:-3, dy:(Math.random()>0.5?2:-2), ...t}); 
                         }
-                        if (Math.random() > 0.8) enemies.push({x:800, y:Math.random()*460+20, dx:-(4+Math.random()*3), dy:(Math.random()>0.5?2:-2)});
+
+                        // Шанс появления врага (20%)
+                        if (Math.random() > 0.8) {
+                            enemies.push({x:800, y:Math.random()*460+20, dx:-(4+Math.random()*3), dy:(Math.random()>0.5?2:-2)});
+                        }
+
+                        // Спавн препятствия каждые 10 очков
                         if (score > 0 && score % 10 === 0 && lastSpawnScore !== score) { 
-                            lastSpawnScore = score; obstacle = { x: 450 + Math.random() * 200, y: 150 + Math.random() * 200, timer: 540 }; 
+                            lastSpawnScore = score; 
+                            obstacle = { x: 450 + Math.random() * 200, y: 150 + Math.random() * 200, timer: 540 }; 
                         }
                     }
                 }
 
-                b.x += b.dx * gameSpeedMult; b.y += b.dy * gameSpeedMult;
+                // Движение мяча и физика отскоков
+                b.x += b.dx * gameSpeedMult; 
+                b.y += b.dy * gameSpeedMult;
+                
+                // Цвет мяча зависит от скорости (в обычном режиме)
                 ctx.fillStyle = trajOn ? "#a0f" : `hsl(${Math.max(0, 120 - (Math.sqrt(b.dx**2 + b.dy**2) - 7) * 12)}, 100%, 50%)`;
-                ctx.beginPath(); ctx.arc(b.x, b.y, 9, 0, 7); ctx.fill();
-                if(b.y < 10 || b.y > 490) { b.dy *= -1; SFX.hit(); }
-                if(b.x > 790) { b.dx *= -1; b.x = 790; shake(10); SFX.hit(); }
+                ctx.beginPath(); 
+                ctx.arc(b.x, b.y, 9, 0, Math.PI * 2); 
+                ctx.fill();
+
+                // Отскок от верхней/нижней границ
+                if(b.y < 10 || b.y > 490) { 
+                    b.dy *= -1; 
+                    SFX.hit(); 
+                }
+                // Отскок от правой стены
+                if(b.x > 790) { 
+                    b.dx *= -1; 
+                    b.x = 790; 
+                    shake(10); 
+                    SFX.hit(); 
+                }
+
+                // Отскок от треугольного препятствия
                 if (obstacle && isPointInTriangle(b.x, b.y, obstacle.x, obstacle.y-60, obstacle.x+60, obstacle.y+60, obstacle.x-60, obstacle.y+60)) {
                     b.dx = Math.min(Math.abs(b.dx) * 1.05, MAX_SPEED);
                     b.dy = (b.y < obstacle.y) ? -Math.abs(b.dy) : Math.abs(b.dy);
-                    createParticles(b.x, b.y, "#ff0", 10); shake(5); SFX.triangle();
+                    createParticles(b.x, b.y, "#ff0", 10); 
+                    shake(5); 
+                    SFX.triangle();
                 }
                 
+                // ПРОИГРЫШ (Мяч улетел за левый край)
                 if(b.x < -20) { 
                     if(balls.length > 1) {
-                        balls.splice(i, 1);
+                        balls.splice(i, 1); // Удаляем один из мячей (если их много)
                     } else { 
                         // ПРОВЕРКА РЕКОРДОВ ПРИ ГЕЙМОВЕРЕ
                         if (trajOn) {
@@ -263,15 +520,24 @@
                                 bestEl.innerText = best;
                             }
                         }
-                        isGameOver = true; SFX.damage(); forceResetUI(); 
+                        isGameOver = true; 
+                        SFX.damage(); 
+                        forceResetUI(); 
                     } 
                 }
             });
 
+            // Отрисовка ракетки игрока
             ctx.fillStyle = trajOn ? "#a0f" : ((bTimer > 0) ? bFill.style.backgroundColor : '#0f0');
-            ctx.shadowBlur = 15; ctx.shadowColor = ctx.fillStyle; ctx.fillRect(15, pY, 12, pH); ctx.shadowBlur = 0;
+            ctx.shadowBlur = 15; 
+            ctx.shadowColor = ctx.fillStyle; 
+            ctx.fillRect(15, pY, 12, pH); 
+            ctx.shadowBlur = 0;
+
             requestAnimationFrame(update);
         }
+
+        // Запуск цикла
         update();
     </script>
 </body>
