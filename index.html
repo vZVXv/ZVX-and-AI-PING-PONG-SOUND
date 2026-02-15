@@ -12,7 +12,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <!-- Название вкладки в браузере -->
-    <title>ZVX and AI PING PONG v1.2.6</title>
+    <title>ZVX and AI PING PONG v1.2.7</title>
 
     <style>
         /* Глобальные настройки стилей */
@@ -146,7 +146,7 @@
 </head>
 
 <body>
-    <div id="header">ZVX and AI PING PONG v1.2.6</div>
+    <div id="header">ZVX and AI PING PONG v1.2.7</div>
     
 	     <!-- Основной контейнер верхней панели (Heads-Up Display) -->
     <div class="hud">
@@ -641,17 +641,31 @@
                     ctx.stroke();
                 }
 
-                // ПРОВЕРКА СТОЛКНОВЕНИЯ С РАКЕТКОЙ
-                let nextX = b.x + b.dx * gameSpeedMult;
-                if (b.dx < 0 && b.x >= 40 && nextX <= 40) {
-                    let intersectY = b.y + (b.dy * (40 - b.x) / b.dx);
-                    if (intersectY > pY && intersectY < pY + pH) {
-					
-					vibrate(40); 
+					// ПРОВЕРКА СТОЛКНОВЕНИЯ С РАКЕТКОЙ
+					/* 1. Вычисляем, где будет мяч на следующем кадре */
+					let nextX = b.x + b.dx * gameSpeedMult;
+
+					/* 2. Если мяч летит влево (dx < 0) и пересекает линию ракетки (X = 40) */
+					if (b.dx < 0 && b.x >= 40 && nextX <= 40) {
+				
+					/* 3. Математически точно находим точку Y, в которой мяч пересечет линию X = 40 */
+					let intersectY = b.y + (b.dy * (40 - b.x) / b.dx);
+
+                        /* 4. ПРОВЕРКА ПОПАДАНИЯ ПО РАКЕТКЕ (С НЕВИДИМЫМ РАСШИРЕНИЕМ)
+						Вместо: intersectY > pY && intersectY < pY + pH
+						Пишем:  intersectY > (pY - 15) && intersectY < (pY + pH + 15)
+						Это добавляет по 15 пикселей "магнитного" поля сверху и снизу */
+						if (intersectY > (pY - 15) && intersectY < (pY + pH + 15)) {
+						
+						/* ВКЛЮЧАЕМ ВИБРАЦИЮ (40 мс — четкий удар) */
+						vibrate(40); 
 					
                         // Ускорение мяча
+						/* Ускоряем мяч на 8% после успешного удара, но не выше лимита MAX_SPEED */
                         b.dx = Math.min(Math.abs(b.dx) * 1.08, MAX_SPEED);
+						/* Слегка ускоряем вертикальный отскок для динамики */
                         b.dy = Math.max(Math.min(b.dy * 1.08, MAX_SPEED), -MAX_SPEED);
+						/* Выталкиваем мяч чуть правее ракетки, чтобы он не застрял в ней */
                         b.x = 42; 
                         
                         // Начисление очков
