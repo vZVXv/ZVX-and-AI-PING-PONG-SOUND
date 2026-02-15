@@ -3,7 +3,7 @@ Google's AI - https://google.com/ai - helped me create this game.
 Play - https://vzvxv.github.io/ZVX-and-AI-PING-PONG
 
 ----------------------------------------------
-The version number v1.2.6 has been assigned.
+The version number v1.2.7 has been assigned.
 ----------------------------------------------
 What follows is an untranslatable Russian dialect
 
@@ -71,6 +71,8 @@ HUD-барометр: Внизу экрана есть индикатор (Timer
 версия - 1.2.5 - Исправление пропажи треугольника в режиме Argus2D - попытка структурировать код...
 
 версия - 1.2.6 - возвращена вибрация на телефоне
+
+версия - 1.2.7 - ракетка теперь на 15 невидимых пикселей больше, что даёт игроку больше шансов отбить мяч.
 
 ----------------------------------------------
 
