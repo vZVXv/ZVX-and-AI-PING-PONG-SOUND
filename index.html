@@ -13,7 +13,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <!-- Название вкладки в браузере -->
-    <title>ZVX and AI PING PONG v1.2.8</title>
+    <title>ZVX and AI PING PONG v1.2.9</title>
 
     <style>
         /* Глобальные настройки стилей */
@@ -147,7 +147,7 @@
 </head>
 
 <body>
-    <div id="header">ZVX and AI PING PONG v1.2.8</div>
+    <div id="header">ZVX and AI PING PONG v1.2.9</div>
     
 	     <!-- Основной контейнер верхней панели (Heads-Up Display) -->
     <div class="hud">
@@ -226,7 +226,8 @@
         // Глобальные состояния
         let gameActive = false;
         let isGameOver = false;
-        let isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+		
+		let isTouch = ('ontouchstart' in window) && !window.matchMedia('(pointer: fine)').matches;
         if (isTouch) document.body.classList.add('touch-device');
 				
 		// ------------------------------------------------------------
@@ -896,4 +897,3 @@ ctx.fill();
     </script>
 </body>
 </html>
-
